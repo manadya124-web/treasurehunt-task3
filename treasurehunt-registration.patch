@@ -1,0 +1,567 @@
+diff --git a/app/auth/login/page.tsx b/app/auth/login/page.tsx
+index fb3b740..692567e 100644
+--- a/app/auth/login/page.tsx
++++ b/app/auth/login/page.tsx
+@@ -4,6 +4,7 @@
+ import { useState, useEffect } from "react";
+ import { useRouter } from "next/navigation";
+ import Navbar from "../../../components/navbar";
++import { readNextFromLocation, withNext } from "@/lib/postAuthRedirect";
+ 
+ export default function LoginPage() {
+   const [emailOrUsername, setEmailOrUsername] = useState("");
+@@ -11,13 +12,17 @@ export default function LoginPage() {
+   const [errors, setErrors] = useState<Record<string, string>>({});
+   const [loading, setLoading] = useState(false);
+   const [showPassword, setShowPassword] = useState(false);
++  // Where the user was trying to go before being asked to log in (validated, internal only)
++  const [next, setNext] = useState<string | null>(null);
+   const router = useRouter();
+ 
+   useEffect(() => {
++    const requested = readNextFromLocation();
++    setNext(requested);
+     // Check if user is already logged in
+     const token = localStorage.getItem("accessToken");
+     if (token) {
+-      router.push("/profile");
++      router.push(requested ?? "/profile");
+     }
+   }, [router]);
+ 
+@@ -52,7 +57,7 @@ export default function LoginPage() {
+         if (isEmail) {
+           localStorage.setItem("email", emailOrUsername.trim());
+         }
+-        router.push("/auth/verify-email");
++        router.push(withNext("/auth/verify-email", readNextFromLocation()));
+         return;
+       }
+ 
+@@ -68,8 +73,9 @@ export default function LoginPage() {
+       // Success case: store tokens & redirect
+       localStorage.setItem("accessToken", data.data.accessToken);
+       localStorage.setItem("refreshToken", data.data.refreshToken);
++      const destination = readNextFromLocation() ?? "/";
+       setTimeout(() => {
+-          window.location.href = "/";
++          window.location.href = destination;
+         }, 500);
+     } catch (err: unknown) {
+       setErrors({ general: "Network error. Please check your connection and try again." });
+@@ -205,7 +211,7 @@ export default function LoginPage() {
+             </div>
+             <p className="text-gray-400">
+               Don't have an account?{" "}
+-              <a href="/auth/signup" className="text-red-400 hover:text-red-300 font-medium transition-colors hover:underline">
++              <a href={withNext("/auth/signup", next)} className="text-red-400 hover:text-red-300 font-medium transition-colors hover:underline">
+                 Sign up here
+               </a>
+             </p>
+diff --git a/app/auth/signup/page.tsx b/app/auth/signup/page.tsx
+index c6326bf..c523cc0 100644
+--- a/app/auth/signup/page.tsx
++++ b/app/auth/signup/page.tsx
+@@ -1,9 +1,10 @@
+ // app/auth/signup/page.tsx
+ "use client";
+ 
+-import { useState } from "react";
++import { useState, useEffect } from "react";
+ import { useRouter } from "next/navigation";
+ import Navbar from "../../../components/navbar";
++import { readNextFromLocation, withNext } from "@/lib/postAuthRedirect";
+ 
+ interface FormData {
+   userName: string;
+@@ -21,8 +22,14 @@ export default function SignupPage() {
+   });
+   const [errors, setErrors] = useState<Record<string, string>>({});
+   const [loading, setLoading] = useState(false);
++  // Where the user was trying to go before being asked to sign up (validated, internal only)
++  const [next, setNext] = useState<string | null>(null);
+   const router = useRouter();
+ 
++  useEffect(() => {
++    setNext(readNextFromLocation());
++  }, []);
++
+   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+     const { name, value } = e.target;
+     setFormData((prev) => ({ ...prev, [name]: value }));
+@@ -83,7 +90,7 @@ export default function SignupPage() {
+       }
+ 
+       localStorage.setItem("email", formData.email);
+-      router.push("/auth/verify-email");
++      router.push(withNext("/auth/verify-email", readNextFromLocation()));
+     } catch (err) {
+       setErrors({ general: "Network error. Please check your connection and try again." });
+     } finally {
+@@ -250,7 +257,7 @@ export default function SignupPage() {
+           <div className="text-center pt-4 border-t border-gray-600">
+             <p className="text-gray-400">
+               Already have an account?{" "}
+-              <a href="/auth/login" className="text-red-400 hover:text-red-300 font-medium transition-colors hover:underline">
++              <a href={withNext("/auth/login", next)} className="text-red-400 hover:text-red-300 font-medium transition-colors hover:underline">
+                 Sign in here
+               </a>
+             </p>
+diff --git a/app/auth/verify-email/page.tsx b/app/auth/verify-email/page.tsx
+index 2b63a88..253a412 100644
+--- a/app/auth/verify-email/page.tsx
++++ b/app/auth/verify-email/page.tsx
+@@ -3,6 +3,7 @@
+ 
+ import { useState, useEffect } from "react";
+ import { useRouter } from "next/navigation";
++import { readNextFromLocation, withNext } from "@/lib/postAuthRedirect";
+ 
+ export default function VerifyEmailPage() {
+   const [otp, setOtp] = useState("");
+@@ -15,7 +16,7 @@ export default function VerifyEmailPage() {
+   useEffect(() => {
+     const storedEmail = localStorage.getItem("email");
+     if (!storedEmail) {
+-      router.push("/auth/login");
++      router.push(withNext("/auth/login", readNextFromLocation()));
+       return;
+     }
+     setEmail(storedEmail);
+@@ -57,13 +58,15 @@ export default function VerifyEmailPage() {
+         localStorage.setItem("refreshToken", data.data.refreshToken);
+         localStorage.removeItem("email"); // Clean up
+         
+-        // Show success and redirect to profile
++        // Show success and redirect to the saved destination (default: profile)
++        const destination = readNextFromLocation() ?? "/profile";
+         setTimeout(() => {
+-          window.location.href = "/profile";
++          window.location.href = destination;
+         }, 500);
+       } else {
++        const loginUrl = withNext("/auth/login", readNextFromLocation());
+         setTimeout(() => {
+-          window.location.href = "/auth/login";
++          window.location.href = loginUrl;
+         }, 500);
+       }
+ 
+diff --git a/app/events/treasurehunt/page.tsx b/app/events/treasurehunt/page.tsx
+index 80e40df..716ef61 100644
+--- a/app/events/treasurehunt/page.tsx
++++ b/app/events/treasurehunt/page.tsx
+@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
+ import useSWR from "swr";
+ import { fetcher } from "@/lib/fetcher";
+ import { authFetch } from "@/lib/authFetch";
++import { withNext } from "@/lib/postAuthRedirect";
+ import { Users, Plus, LogIn, Eye, EyeOff, Info, Calendar, Clock, MapPin } from "lucide-react";
+ 
+ type EventDto = {
+@@ -19,6 +20,35 @@ type EventDto = {
+   teamRegistration?: boolean;
+ };
+ 
++const TREASURE_REGISTRATION_PATH = "/events/treasurehunt";
++const LOGIN_URL = withNext("/auth/login", TREASURE_REGISTRATION_PATH);
++
++// Remove stale credentials so the login page doesn't bounce the user straight back here.
++function clearSession() {
++  localStorage.removeItem("accessToken");
++  localStorage.removeItem("refreshToken");
++}
++
++// Same silent-refresh approach the game page already uses (refresh-token cookie).
++async function tryRefreshToken(): Promise<boolean> {
++  try {
++    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth/refresh-token`, {
++      method: "POST",
++      credentials: "include",
++    });
++    if (!res.ok) return false;
++    const json = await res.json().catch(() => ({}));
++    const newToken = json?.data?.accessToken;
++    if (!newToken) return false;
++    localStorage.setItem("accessToken", newToken);
++    return true;
++  } catch {
++    return false;
++  }
++}
++
++const NETWORK_ERROR_MESSAGE = "Network error. Please check your connection and try again.";
++
+ export default function TreasureHuntRegistrationPage() {
+   const router = useRouter();
+   const [teamName, setTeamName] = useState("");
+@@ -36,6 +66,9 @@ export default function TreasureHuntRegistrationPage() {
+   const [joinError, setJoinError] = useState<string | null>(null);
+   // Auto-detect existing team
+   const [checkingTeam, setCheckingTeam] = useState(true);
++  const [teamCheckError, setTeamCheckError] = useState<string | null>(null);
++  const [teamCheckAttempt, setTeamCheckAttempt] = useState(0); // bump to retry the check
++  const busy = creating || joining; // block double submits across both forms
+ 
+   const { data, error: eventsError, isLoading } = useSWR(
+     `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/events`,
+@@ -60,39 +93,74 @@ export default function TreasureHuntRegistrationPage() {
+   const isPast = eventStatus === "Past";
+ 
+   useEffect(() => {
+-    // Require login & then check existing team
++    let cancelled = false;
++
++    // Require login, then check whether the student already has a team
+     const ensureAndCheck = async () => {
+-      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
++      setCheckingTeam(true);
++      setTeamCheckError(null);
++
++      const token = localStorage.getItem("accessToken");
+       if (!token) {
+-        router.push('/auth/login');
++        // Remember where the student was going so login/signup/verify can bring them back
++        router.replace(LOGIN_URL);
+         return;
+       }
++
+       try {
+-        const treasureBase = process.env.NEXT_PUBLIC_TREASURE_API_URL || 'https://treasure-hunt-backend-one.vercel.app';
+-        const res = await authFetch(`${treasureBase}/api/teamhunt/myteam`, { method: 'GET' });
++        const treasureBase = process.env.NEXT_PUBLIC_TREASURE_API_URL || "https://treasure-hunt-backend-one.vercel.app";
++        const myTeamUrl = `${treasureBase}/api/teamhunt/myteam`;
++
++        let res = await authFetch(myTeamUrl, { method: "GET" });
++        if (res.status === 401 && (await tryRefreshToken())) {
++          res = await authFetch(myTeamUrl, { method: "GET" });
++        }
++        if (cancelled) return;
++
++        if (res.status === 401) {
++          // Session is really gone: clear it and send them to login (then back here)
++          clearSession();
++          router.replace(LOGIN_URL);
++          return;
++        }
++
+         if (res.ok) {
+           const json = await res.json().catch(() => ({}));
+           const teamId = json?.data?.teamId;
+-            if (teamId) {
+-              // Redirect straight to game page (no need to fill forms)
+-              router.replace(`/events/treasurehunt/game?teamId=${teamId}`);
+-              return;
+-            }
++          if (teamId) {
++            // Already in a team: go straight to the game page (no need to fill forms)
++            router.replace(`/events/treasurehunt/game?teamId=${teamId}`);
++            return;
++          }
++          setTeamCheckError("We couldn't read your team details. Please try again.");
++        } else if (res.status === 404) {
++          // Only trust a 404 that came from the backend's own "no team" JSON reply
++          const json = await res.json().catch(() => null);
++          if (json && typeof json === "object" && json.statusCode === 404) {
++            setCheckingTeam(false); // confirmed: no team yet -> show registration forms
++            return;
++          }
++          setTeamCheckError("We couldn't check your team status (service not found). Please try again later.");
++        } else {
++          setTeamCheckError("We couldn't check your team status right now. Please try again.");
+         }
+       } catch (e) {
+-        // Ignore errors – user just proceeds to registration UI
+-        console.warn('Treasure hunt myteam check failed', e);
+-      } finally {
+-        setCheckingTeam(false);
++        if (cancelled) return;
++        console.warn("Treasure hunt myteam check failed", e);
++        setTeamCheckError(NETWORK_ERROR_MESSAGE);
+       }
++      if (!cancelled) setCheckingTeam(false);
+     };
+-    ensureAndCheck();
+-  }, [router]);
+-
+ 
++    ensureAndCheck();
++    return () => {
++      cancelled = true;
++    };
++  }, [router, teamCheckAttempt]);
+ 
+   const handleCreateTeam = async (e: React.FormEvent) => {
+     e.preventDefault();
++    if (busy) return;
+     setError(null);
+     setSuccess(null);
+     if (!treasureEvent?._id) {
+@@ -109,7 +177,7 @@ export default function TreasureHuntRegistrationPage() {
+     }
+     const token = localStorage.getItem("accessToken");
+     if (!token) {
+-      router.push("/auth/login");
++      router.replace(LOGIN_URL);
+       return;
+     }
+     setCreating(true);
+@@ -121,21 +189,24 @@ export default function TreasureHuntRegistrationPage() {
+         headers: { "Content-Type": "application/json" },
+         credentials: "include",
+         body: JSON.stringify({ 
+-          teamName,
++          teamName: teamName.trim(),
+           commonPassword: teamPassword,
+           eventId: treasureEvent._id 
+         }),
+       });
+       const json = await res.json().catch(() => ({}));
++      if (res.status === 401) {
++        clearSession();
++        router.replace(LOGIN_URL);
++        return;
++      }
+       if (!res.ok) {
+         setError(json?.message || "Failed to create team");
+         return;
+       }
+ 
+-      console.log(json.data.treasureHuntData);
+-      
+       // Get the created team's ID
+-      const createdTeamId = json.data.treasureHuntData;
++      const createdTeamId = json?.data?.treasureHuntData;
+       if (!createdTeamId) {
+         setError("Could not determine Team ID after creation.");
+         return;
+@@ -168,7 +239,7 @@ export default function TreasureHuntRegistrationPage() {
+         setSuccess("Team created. (Event not active yet.)");
+       }
+     } catch (err: any) {
+-      setError(err.message || "Something went wrong");
++      setError(err instanceof TypeError ? NETWORK_ERROR_MESSAGE : err?.message || "Something went wrong");
+     } finally {
+       setCreating(false);
+     }
+@@ -176,6 +247,7 @@ export default function TreasureHuntRegistrationPage() {
+ 
+   const handleJoinTeam = async (e: React.FormEvent) => {
+     e.preventDefault();
++    if (busy) return;
+     setJoinError(null);
+     setJoinSuccess(null);
+     if (!joinTeamName.trim()) {
+@@ -192,7 +264,7 @@ export default function TreasureHuntRegistrationPage() {
+     }
+     const token = localStorage.getItem("accessToken");
+     if (!token) {
+-      router.push("/auth/login");
++      router.replace(LOGIN_URL);
+       return;
+     }
+     setJoining(true);
+@@ -204,17 +276,21 @@ export default function TreasureHuntRegistrationPage() {
+         headers: { "Content-Type": "application/json" },
+         credentials: "include",
+         body: JSON.stringify({ 
+-          teamName: joinTeamName, 
++          teamName: joinTeamName.trim(),
+           commonPassword: joinPassword
+         }),
+       });
+       const json = await res.json().catch(() => ({}));
+ 
++      if (res.status === 401) {
++        clearSession();
++        router.replace(LOGIN_URL);
++        return;
++      }
+       if (!res.ok) {
+         setJoinError(json?.message || "Failed to join team");
+         return;
+       }
+-      console.log("Response of join request: ", json)
+       // Get the joined team's ID from the updated response structure
+       const teamData = json?.data?.team;
+       if (!teamData || !teamData._id) {
+@@ -223,8 +299,6 @@ export default function TreasureHuntRegistrationPage() {
+       }
+       const joinedTeamId = teamData._id;
+ 
+-      console.log("Team id: ", joinedTeamId)
+-
+       if (isUpcoming) {
+         setJoinSuccess("Registration successful! You'll be able to access the game on event day.");
+       } else if (isOngoing) {
+@@ -234,7 +308,7 @@ export default function TreasureHuntRegistrationPage() {
+         setJoinSuccess("Team joined. (Event not active yet.)");
+       }
+     } catch (err: any) {
+-      setJoinError(err.message || "Something went wrong");
++      setJoinError(err instanceof TypeError ? NETWORK_ERROR_MESSAGE : err?.message || "Something went wrong");
+     } finally {
+       setJoining(false);
+     }
+@@ -252,6 +326,34 @@ export default function TreasureHuntRegistrationPage() {
+     );
+   }
+ 
++  if (teamCheckError) {
++    return (
++      <div className="min-h-screen bg-black pt-16 text-cream flex items-center justify-center px-4">
++        <Navbar />
++        <div className="max-w-md w-full bg-black/70 border border-red-600/30 rounded-xl p-6 text-center">
++          <h2 className="text-xl font-semibold mb-2">Couldn't load your registration</h2>
++          <p className="text-cream/70 text-sm mb-6">{teamCheckError}</p>
++          <div className="flex items-center justify-center gap-3">
++            <button
++              type="button"
++              onClick={() => setTeamCheckAttempt((n) => n + 1)}
++              className="px-5 py-2 rounded bg-red-600/60 hover:bg-red-600"
++            >
++              Try again
++            </button>
++            <button
++              type="button"
++              onClick={() => router.push("/events")}
++              className="px-5 py-2 rounded bg-black/50 border border-red-600/30 hover:border-red-600/60"
++            >
++              Back to Events
++            </button>
++          </div>
++        </div>
++      </div>
++    );
++  }
++
+   return (
+     <div className="min-h-screen bg-black pt-16 text-cream">
+       <Navbar />
+@@ -374,7 +476,7 @@ export default function TreasureHuntRegistrationPage() {
+                 <div className="flex items-center gap-3">
+                   <button
+                     type="submit"
+-                    disabled={creating || isLoading || !treasureEvent}
++                    disabled={busy || isLoading || !treasureEvent}
+                     className="px-6 py-3 rounded bg-red-600/60 hover:bg-red-600 disabled:opacity-60"
+                   >
+                     {creating ? "Creating..." : (isUpcoming ? "Register Team" : "Create Team")}
+@@ -441,7 +543,7 @@ export default function TreasureHuntRegistrationPage() {
+                 <div className="flex items-center gap-3">
+                   <button
+                     type="submit"
+-                    disabled={joining}
++                    disabled={busy || isLoading || !treasureEvent}
+                     className="px-6 py-3 rounded bg-red-600/60 hover:bg-red-600 disabled:opacity-60"
+                   >
+                     {joining ? "Joining..." : (isUpcoming ? "Register & Join" : "Join Team")}
+diff --git a/lib/postAuthRedirect.ts b/lib/postAuthRedirect.ts
+new file mode 100644
+index 0000000..7a2f71f
+--- /dev/null
++++ b/lib/postAuthRedirect.ts
+@@ -0,0 +1,54 @@
++// Helpers for "send the user back where they were going after login/signup/verify".
++//
++// The destination travels in a `?next=` query parameter (the Treasure Hunt game
++// page already uses this convention). Anything coming from the URL is untrusted,
++// so every value goes through getSafeRedirectPath() before we navigate to it.
++
++const PLACEHOLDER_ORIGIN = "http://placeholder.invalid";
++
++// Auth pages themselves are never valid destinations (prevents redirect loops).
++const AUTH_PATHS = ["/auth/login", "/auth/signup", "/auth/verify-email"];
++
++/**
++ * Returns a safe, same-site path (with query/hash preserved), or null if the
++ * value is missing, external, or malformed.
++ */
++export function getSafeRedirectPath(raw: string | null | undefined): string | null {
++  if (typeof raw !== "string") return null;
++  const value = raw.trim();
++  if (!value || value.length > 2048) return null;
++
++  // Must be an absolute path on this site: "/something". Rejects "https://evil.com",
++  // "evil.com", "javascript:..." and protocol-relative "//evil.com".
++  if (!value.startsWith("/") || value.startsWith("//")) return null;
++
++  // Reject backslashes (browsers treat "/\evil.com" like "//evil.com"),
++  // whitespace and control characters.
++  if (/[\\\s\u0000-\u001f\u007f]/.test(value)) return null;
++
++  let url: URL;
++  try {
++    url = new URL(value, PLACEHOLDER_ORIGIN);
++  } catch {
++    return null;
++  }
++  if (url.origin !== PLACEHOLDER_ORIGIN) return null;
++
++  if (AUTH_PATHS.some((p) => url.pathname === p || url.pathname.startsWith(p + "/"))) {
++    return null;
++  }
++
++  return url.pathname + url.search + url.hash;
++}
++
++/** Reads and validates ?next= from the current browser URL. Client-side only. */
++export function readNextFromLocation(): string | null {
++  if (typeof window === "undefined") return null;
++  return getSafeRedirectPath(new URLSearchParams(window.location.search).get("next"));
++}
++
++/** "/auth/login" + (optional) next -> "/auth/login?next=%2Fevents%2Ftreasurehunt" */
++export function withNext(path: string, next: string | null | undefined): string {
++  const safe = getSafeRedirectPath(next);
++  return safe ? `${path}?next=${encodeURIComponent(safe)}` : path;
++}
+diff --git a/tests/postAuthRedirect.test.mjs b/tests/postAuthRedirect.test.mjs
+new file mode 100644
+index 0000000..3d458c8
+--- /dev/null
++++ b/tests/postAuthRedirect.test.mjs
+@@ -0,0 +1,43 @@
++// Run with:  node --experimental-strip-types --test tests/
++import test from "node:test";
++import assert from "node:assert/strict";
++import { getSafeRedirectPath, withNext } from "../lib/postAuthRedirect.ts";
++
++test("accepts valid internal paths and keeps query/hash", () => {
++  assert.equal(getSafeRedirectPath("/events/treasurehunt"), "/events/treasurehunt");
++  assert.equal(getSafeRedirectPath("/events/treasurehunt/game?teamId=abc"), "/events/treasurehunt/game?teamId=abc");
++  assert.equal(getSafeRedirectPath("/a?x=1#frag"), "/a?x=1#frag");
++  assert.equal(getSafeRedirectPath("/"), "/");
++});
++
++test("rejects missing values", () => {
++  for (const v of [null, undefined, "", "   "]) assert.equal(getSafeRedirectPath(v), null);
++});
++
++test("rejects external / protocol-relative / scheme URLs", () => {
++  for (const v of [
++    "https://evil.com", "http://evil.com/x", "//evil.com", "///evil.com",
++    "evil.com", "javascript:alert(1)", "data:text/html,hi", "events/treasurehunt",
++  ]) assert.equal(getSafeRedirectPath(v), null, v);
++});
++
++test("rejects backslash, whitespace and control-char tricks", () => {
++  for (const v of ["/\\evil.com", "\\\\evil.com", "/\\/evil.com", "/\t/evil.com", "/\n/evil.com", "/a b", "/a\u0000b"])
++    assert.equal(getSafeRedirectPath(v), null, JSON.stringify(v));
++});
++
++test("rejects auth pages (prevents redirect loops)", () => {
++  for (const v of ["/auth/login", "/auth/login?next=%2Fx", "/auth/signup", "/auth/verify-email"])
++    assert.equal(getSafeRedirectPath(v), null, v);
++  assert.equal(getSafeRedirectPath("/auth/forgot-password"), "/auth/forgot-password");
++});
++
++test("rejects overly long input", () => {
++  assert.equal(getSafeRedirectPath("/" + "a".repeat(3000)), null);
++});
++
++test("withNext only appends safe destinations", () => {
++  assert.equal(withNext("/auth/login", "/events/treasurehunt"), "/auth/login?next=%2Fevents%2Ftreasurehunt");
++  assert.equal(withNext("/auth/login", "https://evil.com"), "/auth/login");
++  assert.equal(withNext("/auth/signup", null), "/auth/signup");
++});
